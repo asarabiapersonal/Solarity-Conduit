@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Conduit Bending Workshop: 3/4" to 2" EMT</title>
+  <link rel="stylesheet" href="styles.css">
+  <script type="importmap">
+    { "imports": {
+        "three": "./node_modules/three/build/three.module.js",
+        "three/addons/": "./node_modules/three/examples/jsm/"
+    } }
+  </script>
+</head>
+<body>
+  <header>
+    <div class="brand"><b>CONDUIT BENDING WORKSHOP</b><small>EMT ¾″–2″ · NEC 358</small></div>
+    <label>Trade size <select id="selSize"></select></label>
+    <label>Stick <select id="selLen"><option value="120" selected>10 ft</option><option value="72">6 ft</option><option value="48">4 ft</option></select></label>
+    <label>Exercise <select id="selLesson"></select></label>
+    <button id="btnNew" class="btn">New stick</button>
+    <button id="btnUndo" class="btn">Undo bend</button>
+    <button id="btnReset" class="btn" title="Start this exercise over: new stick, no marks, wall and boxes as they were">Reset exercise</button>
+    <span class="spacer"></span>
+    <span class="views"><span class="seg-label">View</span>
+      <button class="btn small" data-view="bender">Bender</button>
+      <button class="btn small" data-view="side">Side</button>
+      <button class="btn small" data-view="top">Top</button>
+      <button class="btn small" data-view="overview">Overview</button>
+      <button class="btn small" data-view="conduit" title="Frame the whole conduit">Conduit</button>
+      <button class="btn small" data-view="job" title="Look at the job wall (field jobs)">Job</button>
+    </span>
+  </header>
+
+  <div id="app">
+    <aside id="left">
+      <nav class="stages">
+        <button data-stage="mark" class="active"><span class="n">01</span>Mark</button>
+        <button data-stage="place"><span class="n">02</span>Place</button>
+        <button data-stage="bend"><span class="n">03</span>Bend</button>
+        <button data-stage="inspect"><span class="n">04</span>Inspect</button>
+      </nav>
+
+      <section data-panel="mark" class="panel active">
+        <h3>Layout</h3>
+        <label>Datum <select id="measFrom"></select></label>
+        <div class="row">
+          <label>Distance (in) <input id="markDist" placeholder="12-3/16" size="10"></label>
+          <label>ID <input id="markLabel" size="4" placeholder="M1"></label>
+        </div>
+        <div class="row">
+          <button id="btnAddMark" class="btn primary">Add mark</button>
+          <label class="chk"><input type="checkbox" id="chkClick" checked> Pick on conduit</label>
+        </div>
+        <div id="markHint" class="hint"></div>
+        <h4>Marks · from End A / End B</h4>
+        <ul id="markList" class="list"></ul>
+
+        <div id="wallTools" hidden>
+          <h4>Wall layout · tape</h4>
+          <div class="row"><span class="lbl">Hook on</span>
+            <div class="seg" id="wtOrigin"><button data-v="panel">Panel</button><button data-v="box">Box</button><button data-v="floor">Floor</button></div></div>
+          <div class="row"><span class="lbl">Direction</span>
+            <div class="seg" id="wtAxis"><button data-v="h" title="Level tape along the wall (T)">↔ Level</button><button data-v="v" title="Plumb tape for heights (T)">↕ Plumb</button><button data-v="d" title="Straight out from the wall, for depth (T)">⊥ Depth</button></div></div>
+          <p class="small muted">Point at the job wall to pull the tape to the pencil; click to mark. <b>T</b> switches direction.</p>
+          <h4>Wall marks</h4>
+          <ul id="wallMarkList" class="list"></ul>
+          <div class="row"><button class="btn small" id="btnClearWall">Clear all wall marks</button></div>
+        </div>
+      </section>
+
+      <section data-panel="place" class="panel">
+        <h3>Setup</h3>
+        <label>Mark <select id="plMark"></select></label>
+        <label>Align to <select id="plRef"></select></label>
+        <div class="row"><span class="lbl">Hook end</span>
+          <div class="seg" id="plFront"><button data-v="A" class="on">End A</button><button data-v="B">End B</button></div>
+        </div>
+        <div class="row"><span class="lbl">Roll</span>
+          <div class="seg" id="plRoll"><button data-v="0" class="on">0°</button><button data-v="90">90°</button><button data-v="180">180°</button><button data-v="270">270°</button></div>
+        </div>
+        <label>Roll trim <input type="range" id="plRollFine" min="-180" max="180" step="1" value="0"> <span id="plRollVal">0°</span></label>
+        <label>Shoe offset <input type="range" id="plNudge" min="-1" max="1" step="0.0625" value="0"> <span id="plNudgeVal">0"</span></label>
+        <div class="row">
+          <button id="btnInsert" class="btn primary">Insert</button>
+          <button id="btnRemove" class="btn">Remove</button>
+        </div>
+        <p id="rollLockNote" class="hint warn" hidden>The bend is clamped in the shoe, so the conduit can't roll. <b>Release &amp; remove</b> it, then pick the roll for the next bend.</p>
+        <p class="small muted">Drag the blue ring on the conduit to roll it in the shoe.</p>
+        <div id="placeInfo" class="hint"></div>
+
+        <div id="wallFitTools" hidden>
+          <h4>Hold on the wall</h4>
+          <div class="row">
+            <button id="btnWallHold" class="btn primary">Hold on wall</button>
+            <button id="btnWallBest" class="btn small" title="Let the installer find the best fit">Best fit</button>
+            <button id="btnWallBack" class="btn small">Back to bench</button>
+          </div>
+          <div id="wallFitCtl" hidden>
+            <p class="small muted">The conduit stays pressed to the wall. Drag it, or use the arrows (Shift = 1/16"). Rotations turn about the end nearest the panel.</p>
+            <div class="row"><span class="lbl">Move</span>
+              <div class="seg" id="wfMove"><button data-dx="-1" data-dy="0" title="Left (←)">←</button><button data-dx="0" data-dy="1" title="Up (↑)">↑</button><button data-dx="0" data-dy="-1" title="Down (↓)">↓</button><button data-dx="1" data-dy="0" title="Right (→)">→</button></div>
+              <label class="chk"><input type="checkbox" id="wfFine"> 1/16"</label></div>
+            <div class="row"><span class="lbl">Spin on wall</span><div class="seg wfRot"><button data-ax="z" data-s="1" title="Q">⟲</button><button data-ax="z" data-s="-1" title="E">⟳</button></div></div>
+            <div class="row"><span class="lbl">Swing out</span><div class="seg wfRot"><button data-ax="y" data-s="1">⟲</button><button data-ax="y" data-s="-1">⟳</button></div></div>
+            <div class="row"><span class="lbl">Tilt</span><div class="seg wfRot"><button data-ax="x" data-s="1">⟲</button><button data-ax="x" data-s="-1">⟳</button></div></div>
+            <div class="row"><span class="lbl">Roll (own axis)</span><div class="seg wfRot"><button data-ax="roll" data-s="1">⟲</button><button data-ax="roll" data-s="-1">⟳</button></div>
+              <label class="chk"><input type="checkbox" id="wfFineRot"> 1°</label></div>
+            <div class="row"><button id="btnWallSeat" class="btn small" title="Slide the end nearest the panel onto the connector">Seat end in panel</button></div>
+            <div id="wallFitOut"></div>
+          </div>
+        </div>
+      </section>
+
+      <section data-panel="bend" class="panel">
+        <h3>Bend</h3>
+        <div class="gauge"><div id="gAngle">0.0°</div><div id="gSub" class="small">not in bender</div></div>
+        <label>Shoe angle <input type="range" id="bendSlider" min="0" max="100" step="0.1" value="0"></label>
+        <div class="row">
+          <button id="btnPull" class="btn primary">Pull ▲</button>
+          <button id="btnPullFine" class="btn">+0.5°</button>
+          <button id="btnRelease" class="btn">Release</button>
+        </div>
+        <label class="chk"><input type="checkbox" id="chkSpring" checked> Springback</label>
+        <p class="small muted" title="Hold ↑ to pull, Shift+↑ for a slow pull, R to release">↑ pull · ⇧↑ fine · R release</p>
+        <div id="bendInfo" class="hint"></div>
+        <button id="btnRemove2" class="btn">Release &amp; remove</button>
+      </section>
+
+      <section data-panel="inspect" class="panel">
+        <h3>Inspection</h3>
+        <div id="inspectOut"></div>
+        <button id="btnCheck" class="btn primary">Run check</button>
+        <div id="checkOut"></div>
+      </section>
+    </aside>
+
+    <main id="viewport">
+      <div id="hud"><div id="hudStage"></div><div id="hudMsg"></div></div>
+      <div id="toast"></div>
+      <div id="koMenu" hidden></div>
+      <div id="ctxMenu" hidden></div>
+      <div id="navHint"></div>
+      <button id="btnFoldL" class="fold left" title="Hide the left panel">&#8249;</button>
+      <button id="btnFoldR" class="fold right" title="Hide the right panel">&#8250;</button>
+      <div id="moveBar">
+        <button id="btnRotL" title="Rotate left 15° (Q)">⟲</button>
+        <button id="btnRotR" title="Rotate right 15° (E)">⟳</button>
+        <button id="btnHome" title="Move back to the starting spot">⌂</button>
+      </div>
+    </main>
+
+    <aside id="right">
+      <nav class="tabs">
+        <button data-tab="lesson" class="active">Procedure</button>
+        <button data-tab="math">Math</button>
+        <button data-tab="bender">Bender</button>
+        <button data-tab="fill">Fill</button>
+        <button data-tab="support">Support</button>
+        <button data-tab="sources">Refs</button>
+      </nav>
+      <section data-tabpanel="lesson" class="tabpanel active" id="tabLesson"></section>
+      <section data-tabpanel="math" class="tabpanel" id="tabMath"></section>
+      <section data-tabpanel="bender" class="tabpanel" id="tabBender"></section>
+      <section data-tabpanel="fill" class="tabpanel" id="tabFill"></section>
+      <section data-tabpanel="support" class="tabpanel" id="tabSupport"></section>
+      <section data-tabpanel="sources" class="tabpanel" id="tabSources"></section>
+    </aside>
+  </div>
+  <div id="err"></div>
+  <script>window.addEventListener('error', e => { const d = document.getElementById('err'); d.style.display = 'block'; d.textContent += (e.message || e) + '\n'; });</script>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

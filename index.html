@@ -30,6 +30,7 @@
       <button class="btn small" data-view="conduit" title="Frame the whole conduit">Conduit</button>
       <button class="btn small" data-view="job" title="Look at the job wall (field jobs)">Job</button>
     </span>
+    <label class="chk wall-toggle" title="Show or hide the job wall and everything on it"><input type="checkbox" id="chkWall" checked autocomplete="off"> Job wall</label>
   </header>
 
   <div id="app">
@@ -50,7 +51,7 @@
         </div>
         <div class="row">
           <button id="btnAddMark" class="btn primary">Add mark</button>
-          <label class="chk"><input type="checkbox" id="chkClick" checked> Pick on conduit</label>
+          <label class="chk"><input type="checkbox" id="chkClick" checked autocomplete="off"> Pick on conduit</label>
         </div>
         <div id="markHint" class="hint"></div>
         <h4>Marks · from End A / End B</h4>

@@ -279,3 +279,4 @@ details.solution[open] > summary::before { transform: rotate(90deg); }
 #wallMarkToggles .wm-all { margin: 4px 0 6px !important; font-weight: 600; }
 #wallMarkToggles .wm-list { display: grid; gap: 4px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: rgba(20,29,49,.45); }
 #wallMarkToggles .wm-list label { margin: 0 !important; font: 12px var(--mono) !important; }
+header label.wall-toggle { margin-left: 10px; }

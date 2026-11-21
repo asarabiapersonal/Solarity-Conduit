@@ -21,6 +21,7 @@ const state = {
   size: '3/4', bender: BENDERS['3/4'], L: 120, conduit: null,
   lesson: LESSONS[0], params: null,
   stage: 'mark',
+  showWall: true,             // the field-job wall (header switch)
   inBender: false, existing: null,
   placement: { markId: null, ref: 'arrow', front: 'A', phiDeg: 0, nudge: 0 },
   handle: 0, perm: 0, spring: true,
@@ -619,21 +620,28 @@ function updateJobScene(keepInstalled = false) {
   jobGroup.clear(); if (!keepInstalled) jobInstalled.clear(); jobWall = null;
   jobClickables.length = 0; jobParts.box = null; jobParts.panel = null;
   panelKOs.clear(); pkoTargets.length = 0; koHover = null;
-  if (!state.lesson.route) { wallContact.group.visible = false; cart.visible = false; drawWallMarks(); renderWallTools(); renderWallFitTools(); return; }
-  const sc = state.params.scene, r = state.conduit.r;
+  // The wall is always there (bare between field jobs), the same size for every job unless a job
+  // needs more; the "Job wall" switch hides it.
+  const sc = state.lesson.route ? state.params.scene : null, r = state.conduit.r;
   jobGroup.position.copy(JOB_ORIGIN);
-  // wall wide enough for everything on it
-  let x0 = Math.min(sc.start.p.x, sc.end.p.x), x1 = Math.max(sc.start.p.x, sc.end.p.x);
-  for (const it of sc.items) { const a = it.min ?? it.a, b = it.max ?? it.b; x0 = Math.min(x0, a[0], b[0]); x1 = Math.max(x1, a[0], b[0]); }
-  x0 -= 26; x1 += 26; sc.cx = (x0 + x1) / 2;
+  let x0 = -42, x1 = 130;
+  if (sc) {
+    let a0 = Math.min(sc.start.p.x, sc.end.p.x), a1 = Math.max(sc.start.p.x, sc.end.p.x);
+    for (const it of sc.items) { const a = it.min ?? it.a, b = it.max ?? it.b; a0 = Math.min(a0, a[0], b[0]); a1 = Math.max(a1, a[0], b[0]); }
+    x0 = Math.min(x0, a0 - 26); x1 = Math.max(x1, a1 + 26); sc.cx = (x0 + x1) / 2;
+  }
+  const cx = (x0 + x1) / 2;
   const wall = new THREE.Mesh(new THREE.BoxGeometry(x1 - x0, 120, 2), JOBMAT.wall);
-  wall.position.set(sc.cx, 60, -1); jobGroup.add(wall);
+  wall.position.set(cx, 60, -1); jobGroup.add(wall);
   jobWall = wall;
   const base = new THREE.Mesh(new THREE.BoxGeometry(x1 - x0, 4, 0.5), JOB_MAT.base); // dark rubber base
-  base.position.set(sc.cx, 2, 0.25); jobGroup.add(base);
+  base.position.set(cx, 2, 0.25); jobGroup.add(base);
   // the soft wall shadow covers the wall, its "floor" is the wall face (shifted down a touch: light from above)
-  wallContact.group.position.copy(JOB_ORIGIN).add(new THREE.Vector3(sc.cx, 60 - 0.7, 0.04));
-  wallContact.group.visible = true;
+  wallContact.group.position.copy(JOB_ORIGIN).add(new THREE.Vector3(cx, 60 - 0.7, 0.04));
+  if (!sc) {
+    jobGroup.traverse(o => o.layers.set(NO_CONTACT_SHADOW));
+    applyWallVis(); drawWallMarks(); renderWallTools(); renderWallFitTools(); return;
+  }
   // pencil marks belong to this job and size; a new stick keeps them
   const key = state.lesson.id + '|' + state.size;
   if (state.wallMarksFor !== key) { state.wallMarks = []; state.wallMarksFor = key; state.wallSeq = 0; state.conn = { start: false, end: false }; state.job = { coverOff: false, doorOpen: false, kos: {} }; state.cartW = null; }
@@ -724,9 +732,22 @@ function updateJobScene(keepInstalled = false) {
     const px = Math.min(...sc.items.filter(i => i.kind === 'panel').map(i => i.min[0]), sc.start.p.x);
     state.cartW = { x: JOB_ORIGIN.x + px - 26, z: JOB_ORIGIN.z + 34 };
   }
-  cart.visible = true; cart.position.set(state.cartW.x, 0, state.cartW.z);
+  cart.position.set(state.cartW.x, 0, state.cartW.z);
   drawCart();
-  drawWallMarks(); renderWallTools(); renderWallFitTools();
+  applyWallVis(); drawWallMarks(); renderWallTools(); renderWallFitTools();
+}
+// The "Job wall" switch: hides the wall with everything on it (panel, boxes, marks) and the cart.
+// A stick held up on the wall stays in view.
+function applyWallVis() {
+  const on = state.showWall;
+  jobGroup.visible = on; wallMarkGroup.visible = on;
+  cart.visible = on && !!state.lesson.route;
+  wallContact.group.visible = on && !!state.lesson.route;
+  const chk = $('#chkWall'); if (chk) chk.checked = on;
+}
+function setWallShown(on) {
+  state.showWall = on; applyWallVis();
+  if (!on) { setKOHover(null); showPencil(null); }
 }
 // Rebuild the wall after a change to what is on it, keeping the conduit held or installed there.
 function rebuildJob() { updateJobScene(true); if (state.wallFit) showWallFit(); }
@@ -880,7 +901,8 @@ function wireContextMenu(fold) {
         { label: 'Camera (orbit and pan)', on: !pencil, fn: () => setTool(false) },
         { head: 'View' },
         ...['bender', 'side', 'top', 'overview', 'conduit'].map(v => ({ label: v[0].toUpperCase() + v.slice(1), fn: () => setView(v) })),
-        ...(state.lesson.route ? [{ label: 'Job wall', fn: () => setView('job') }] : []),
+        { label: 'Job wall', fn: () => setView('job') },
+        { label: 'Show the job wall', on: state.showWall, fn: () => setWallShown(!state.showWall) },
         { head: 'Panels' },
         { label: fl.contains('fold-l') ? 'Show the left panel' : 'Hide the left panel', fn: () => fold('l') },
         { label: fl.contains('fold-r') ? 'Show the right panel' : 'Hide the right panel', fn: () => fold('r') },
@@ -1720,9 +1742,9 @@ function setView(v) {
     const dir = (state.wallFit ? V(0.12, 0.22, 1) : V(0.3, 0.75, 0.6)).normalize();
     controls.target.copy(ctr); camera.position.copy(ctr.clone().addScaledVector(dir, dist)); controls.update();
     return;
-  } else if (v === 'job' && state.lesson.route) {
+  } else if (v === 'job') {
     // straight on to the job wall
-    const tt = JOB_ORIGIN.clone().add(V(state.params.scene.cx ?? 40, 62, 0));
+    const tt = JOB_ORIGIN.clone().add(V((state.lesson.route ? state.params.scene.cx : null) ?? 44, 62, 0));
     controls.target.copy(tt); camera.position.copy(tt.clone().add(V(0, 6, 175))); controls.update();
     return;
   } else {
@@ -1761,6 +1783,8 @@ function wire() {
     if (state.lesson.route) setView('job');
   };
   $('#btnNew').onclick = newConduit;
+  $('#chkWall').onchange = (e) => setWallShown(e.target.checked);
+  $('#chkClick').checked = true;   // the pencil is the tool at start-up (a reload must not keep it off)
   $('#btnUndo').onclick = () => {
     if (state.inBender) { state.inBender = false; state.existing = null; state.handle = state.perm = 0; state.benderFree = false; }
     else if (state.conduit.bends.length) state.conduit.bends.pop();
@@ -1897,7 +1921,7 @@ function wire() {
   };
   // the thing on the job wall (or the cart) under the pointer: { kind: 'ko' | 'act' | 'cart', hit }
   const jobHit = () => {
-    if (!state.lesson.route || state.busy) return null;
+    if (!state.lesson.route || state.busy || !state.showWall) return null;
     const hs = ray.intersectObjects([...koTargets, ...pkoTargets, ...jobClickables, cart], true);
     for (const h of hs) {
       if (h.object.userData.ko) return { kind: 'ko', hit: h };
@@ -1913,7 +1937,7 @@ function wire() {
   ctxHit = (e) => { rayAt(e); return jobHit(); };
   // the front face of the job wall, if nothing else on the wall is in the way
   const wallHit = (e) => {
-    if (!state.lesson.route || !jobWall || state.busy || e.pointerType !== 'mouse' || !$('#chkClick').checked) return null;
+    if (!state.lesson.route || !jobWall || !state.showWall || state.busy || e.pointerType !== 'mouse' || !$('#chkClick').checked) return null;
     rayAt(e);
     const h = ray.intersectObjects([...jobGroup.children.filter(o => !o.isSprite), jobInstalled], true).filter(x => !x.object.isSprite)[0];
     if (state.wallTapeAxis === 'd') return h && h.object !== jobWall && h.point.z - JOB_ORIGIN.z > 0.02 ? h : null;

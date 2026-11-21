@@ -38,7 +38,7 @@ const state = {
   pipeW: { x: 0, z: REST_Z, yaw: 0 },
   stationW: { x: 0, z: 0, yaw: 0 },
 };
-const placeM = (w) => new THREE.Matrix4().makeRotationY(w.yaw).setPosition(w.x, 0, w.z);
+const placeM = (w) => new THREE.Matrix4().makeRotationY(w.yaw).setPosition(w.x, w.y || 0, w.z);
 const toW = (v, w) => v.clone().applyMatrix4(placeM(w));
 
 // ------------------------------------------------------------------ three setup
@@ -352,7 +352,7 @@ function newConduit() {
   state.wallFit = null; jobInstalled.clear();
   state.params = state.lesson.params(state.size, state.bender, EMT[state.size].od);
   state.placement = { markId: null, ref: defaultRef(state.bender), front: 'A', phiDeg: 0, nudge: 0 };
-  state.pipeW = { x: 0, z: REST_Z, yaw: 0 }; state.stationW = { x: 0, z: 0, yaw: 0 };
+  state.pipeW = { x: 0, z: REST_Z, yaw: 0 }; state.stationW = { x: 0, z: 0, yaw: 0 }; state.benderFree = false;
   if (tape) { scene.remove(tape); tape.geometry.dispose(); }
   tape = buildTape(state.L); scene.add(tape);
   $('#checkOut').innerHTML = '';
@@ -462,6 +462,19 @@ function floorPenetration(root = benderObj.root, shoe = benderObj.shoe) {
   return Math.max(0, -minY);
 }
 
+// Where the idle bender waits: on the floor alongside the conduit, a hand's width off its near side.
+function besideConduit(local, lay) {
+  let x0 = Infinity, x1 = -Infinity, z0 = Infinity;
+  for (const p of state.conduit.sample(lay, 2)) {
+    const q = p.P.clone().applyMatrix4(local);
+    x0 = Math.min(x0, q.x); x1 = Math.max(x1, q.x); z0 = Math.min(z0, q.z);
+  }
+  const gap = state.bender.type === 'hand' ? (benderObj.Ro || state.bender.R) + 4 : 30;
+  const w = { ...state.pipeW, y: 0 };
+  const P = toW(new THREE.Vector3((x0 + x1) / 2, 0, z0 - gap), w);
+  return { x: P.x, z: P.z, yaw: state.pipeW.yaw, y: 0 };
+}
+
 function updateScene() {
   const c = state.conduit, b = state.bender, r = c.r;
   let matrix, lay;
@@ -489,19 +502,15 @@ function updateScene() {
     state.restLocal = rp.matrix;
     matrix = rp.matrix.clone().premultiply(placeM(state.pipeW));
     lay = rp.lay;
-    // While placing, the bender stands beside the selected mark, facing the chosen hook end,
-    // so you can see how it will go on. Otherwise it waits where it was last used.
-    const pl = state.stage === 'place' ? placementWithMark() : null;
-    if (pl) {
-      const ex = findExisting(pl);
-      const pose = benderPose(c, b, pl, ex ? ex.theta : 0, ex);
-      state.stationW = stationFor(pl, ex, pose, matrix, lay);
-    }
-    const idle = b.type === 'hand' ? new THREE.Vector3(-6, r + b.R, -14) : new THREE.Vector3(0, ELECTRIC_BEND_HEIGHT + b.R, pl ? -REST_Z : 0);
-    benderObj.root.position.copy(toW(idle, state.stationW));
-    benderObj.root.rotation.set(0, state.stationW.yaw, 0);
+    // Not bending: a hand bender lies flat on the floor (an electric one stands on its wheels),
+    // beside the conduit until you move it, then wherever you left it.
+    if (!state.benderFree) state.stationW = besideConduit(rp.matrix, lay);
+    const sw = state.stationW, root = benderObj.root;
+    root.rotation.order = 'YXZ'; // yaw about the floor's up axis, after laying it down
     benderObj.shoe.rotation.z = 0;
-    benderObj.root.position.y += floorPenetration();
+    if (b.type === 'hand') { root.position.set(sw.x, 0, sw.z); root.rotation.set(-Math.PI / 2, sw.yaw, 0); }
+    else { root.position.copy(toW(new THREE.Vector3(0, ELECTRIC_BEND_HEIGHT + b.R, 0), { ...sw, y: 0 })); root.rotation.set(0, sw.yaw, 0); }
+    root.position.y += floorPenetration() + (sw.y || 0);
     state.floorLift = 0;
   }
   ({ matrix, lay } = updateGhost(matrix, lay));
@@ -560,7 +569,7 @@ function updateObstacle() {
   const ob = state.lesson.obstacle && state.lesson.obstacle(state.params);
   if (!ob || state.inBender) return;
   obstacleGroup.matrixAutoUpdate = false;
-  obstacleGroup.matrix.copy(placeM(state.pipeW));
+  obstacleGroup.matrix.copy(placeM({ ...state.pipeW, y: 0 }));
   const xA = state.conduit.frameAt(state.lay, 0).P.clone().applyMatrix4(state.restLocal).x;
   const z = 0, depth = 10;
   let mesh, label;
@@ -1442,7 +1451,7 @@ function removeFromBender() {
   let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
   for (const p of state.samples) { minX = Math.min(minX, p.W.x); maxX = Math.max(maxX, p.W.x); minZ = Math.min(minZ, p.W.z); maxZ = Math.max(maxZ, p.W.z); }
   state.pipeW = { x: (minX + maxX) / 2, z: (minZ + maxZ) / 2, yaw: state.pipeW.yaw };
-  state.inBender = false; state.existing = null; state.handle = 0; state.perm = 0;
+  state.inBender = false; state.existing = null; state.handle = 0; state.perm = 0; state.benderFree = false;
   setStage('place');   // the conduit has to be placed in the bender again
   refreshAll();
   setView('overview');
@@ -1691,7 +1700,7 @@ function setView(v) {
   let t, c;
   if (v === 'bender') {
     const cl = state.inBender && state.pose ? state.pose.shoe.center.clone()
-      : V(b.type === 'hand' ? -6 : 0, b.type === 'hand' ? b.R : ELECTRIC_BEND_HEIGHT + b.R / 2, b.type === 'hand' ? -14 : 0);
+      : V(0, b.type === 'hand' ? 3 : ELECTRIC_BEND_HEIGHT + b.R / 2, 0);
     if (b.type === 'electric') cl.set(0, ELECTRIC_BEND_HEIGHT + b.R, 0);
     t = V(cl.x - 2 * sc, cl.y * 0.8, cl.z); c = V(cl.x + 13 * sc, cl.y + 12 * sc, cl.z + 40 * sc);
   } else if (v === 'side') {
@@ -1753,7 +1762,7 @@ function wire() {
   };
   $('#btnNew').onclick = newConduit;
   $('#btnUndo').onclick = () => {
-    if (state.inBender) { state.inBender = false; state.existing = null; state.handle = state.perm = 0; }
+    if (state.inBender) { state.inBender = false; state.existing = null; state.handle = state.perm = 0; state.benderFree = false; }
     else if (state.conduit.bends.length) state.conduit.bends.pop();
     refreshAll();
   };
@@ -1960,8 +1969,16 @@ function wire() {
     // conduit on the floor moves just the conduit
     const key = state.inBender || !p.onConduit ? 'stationW' : 'pipeW';
     state.moveTarget = key;
+    if (key === 'stationW' && !state.inBender) state.benderFree = true; // stays where you put it
     const y = Math.max(0, Math.min(p.hit.point.y, 40));
     drag = { id: e.pointerId, key, y, start: floorPoint(e, y), w0: { ...state[key] }, x0: e.clientX, y0: e.clientY, moved: false, p };
+    if (e.altKey) {
+      // a vertical plane through the grab point, square to the view: the pointer's rise is the lift
+      const n = camera.getWorldDirection(new THREE.Vector3()).setY(0);
+      if (n.lengthSq() < 1e-6) n.set(0, 0, 1);
+      drag.lift = new THREE.Plane().setFromNormalAndCoplanarPoint(n.normalize(), p.hit.point);
+      drag.liftAt = p.hit.point.y;
+    }
   }, true);
   window.addEventListener('pointermove', (e) => {
     if (special && e.pointerId === special.id) {
@@ -2033,6 +2050,15 @@ function wire() {
     if (e.pointerId !== drag.id) return;
     if (!drag.moved && Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) < 5) return;
     drag.moved = true; cv.style.cursor = 'grabbing';
+    if (drag.lift) {
+      rayAt(e);
+      const q = new THREE.Vector3();
+      if (!ray.ray.intersectPlane(drag.lift, q)) return;
+      const y = Math.max(0, Math.min(96, (drag.w0.y || 0) + q.y - drag.liftAt));
+      state[drag.key] = { ...drag.w0, y };
+      if (!raf) raf = requestAnimationFrame(() => { raf = 0; updateScene(); });
+      return;
+    }
     const pt = floorPoint(e, drag.y);
     if (!pt || !drag.start) return;
     state[drag.key] = { ...drag.w0, x: drag.w0.x + pt.x - drag.start.x, z: drag.w0.z + pt.z - drag.start.z };
@@ -2066,7 +2092,7 @@ function wire() {
   $('#btnRotR').onclick = () => turn(-15);
   $('#btnHome').onclick = () => {
     if (state.inBender) state.stationW = { x: 0, z: 0, yaw: 0 };
-    else { state.pipeW = { x: 0, z: REST_Z, yaw: 0 }; state.stationW = { x: 0, z: 0, yaw: 0 }; }
+    else { state.pipeW = { x: 0, z: REST_Z, yaw: 0 }; state.stationW = { x: 0, z: 0, yaw: 0 }; state.benderFree = false; }
     updateScene(); setView(state.inBender ? 'bender' : 'overview');
   };
   window.addEventListener('keydown', (e) => {

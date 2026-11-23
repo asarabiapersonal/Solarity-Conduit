@@ -240,7 +240,7 @@ a:hover { border-bottom-color: var(--accent-hi); }
 svg text { font-family: var(--mono); }
 
 header .btn, header select, header label { white-space: nowrap; flex-shrink: 0; }
-@media (min-width: 901px) { header { overflow-x: auto; scrollbar-width: none; } header::-webkit-scrollbar { display: none; } }
+@media (min-width: 901px) and (min-height: 521px) { header { overflow-x: auto; scrollbar-width: none; } header::-webkit-scrollbar { display: none; } }
 @media (max-width: 1280px) and (min-width: 901px) {
   header { gap: 10px; }
   header .brand small, .views .seg-label { display: none; }
@@ -248,23 +248,67 @@ header .btn, header select, header label { white-space: nowrap; flex-shrink: 0; 
   #app.fold-l { --lw: 0px; } #app.fold-r { --rw: 0px; }
 }
 
-/* ---------- phones & small tablets: 3D view on top, panels below ---------- */
-@media (max-width: 900px) {
-  html, body { overflow: auto; }
-  header { height: auto; flex-wrap: wrap; gap: 6px 10px; padding: 8px 10px; }
-  header .brand { width: 100%; }
-  header .spacer { display: none; }
-  #app { position: static; display: flex; flex-direction: column; }
+/* ---------- phones & small tablets ----------
+   The 3D view stays pinned while the panels scroll: on top in portrait, on the left in landscape.
+   The header is one row that scrolls sideways. */
+@media (max-width: 900px), (max-height: 520px) {
+  header { height: 46px; gap: 8px; padding: 0 8px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;
+    padding-left: max(8px, env(safe-area-inset-left)); padding-right: max(8px, env(safe-area-inset-right)); }
+  header::-webkit-scrollbar { display: none; }
+  header .brand, header .spacer, .views .seg-label { display: none; }
+  header label:not(.chk) { font-size: 0; gap: 0; }            /* the selects say what they are */
+  header label:not(.chk) select { font-size: 13px; max-width: 46vw; }
+  header label.wall-toggle { margin-left: 2px; }
+  #app { top: 46px; display: grid; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; }
+  #app, #app.fold-l, #app.fold-r { --lw: 0px; --rw: 0px; }
   .fold { display: none; }
-  #viewport { order: 0; height: 58vh; min-height: 300px; flex: none; }
-  #left { order: 1; border-right: 0; border-top: 1px solid var(--line); overflow: visible; box-shadow: none; }
-  #right { order: 2; border-left: 0; border-top: 1px solid var(--line); overflow: visible; box-shadow: none; }
+  #viewport { position: sticky; top: 0; z-index: 4; align-self: start; }
+  #left, #right { overflow: visible; box-shadow: none; }
+  #app.fold-l #left, #app.fold-r #right { overflow: visible; }
   #hudMsg { max-width: calc(100% - 8px); }
-  #navHint { left: 130px; text-align: right; white-space: normal; font-size: 9.5px; }
-  .btn { padding: 8px 12px; }
-  .seg button { padding: 8px 10px; }
-  input[type=range] { height: 28px; }
+  #navHint { display: none; }
+  #toast { bottom: 58px; max-width: 92%; }
 }
+/* portrait: view on top, panels below */
+@media (max-width: 900px) and (min-height: 521px) {
+  #app { grid-template-columns: 1fr; grid-template-rows: auto auto auto; }
+  #viewport { grid-row: 1; } #left { grid-row: 2; } #right { grid-row: 3; }
+  #viewport { height: 50dvh; min-height: 260px; box-shadow: 0 8px 18px rgba(0,0,0,.45); }
+  #left { border-right: 0; border-top: 1px solid var(--line); }
+  #right { border-left: 0; border-top: 1px solid var(--line); }
+  .stages, .tabs { top: 0; }
+}
+/* landscape phones: view on the left, the panels in one scrolling column on the right */
+@media (max-height: 520px) {
+  #app { grid-template-columns: 1fr min(44vw, 360px); grid-template-rows: auto 1fr; }
+  #viewport { grid-column: 1; grid-row: 1 / span 2; height: calc(100dvh - 46px); }
+  #left { grid-column: 2; grid-row: 1; border-right: 0; border-left: 1px solid var(--line); }
+  #right { grid-column: 2; grid-row: 2; border-left: 1px solid var(--line); border-top: 1px solid var(--line); }
+  .stages, .tabs { position: static; }
+  #hudMsg { display: none; }
+}
+
+/* ---------- touch screens: bigger targets, no long-press text selection ---------- */
+@media (pointer: coarse) {
+  body { touch-action: manipulation; }
+  .btn { padding: 9px 14px; min-height: 38px; }
+  .btn.small { padding: 7px 12px; min-height: 34px; }
+  .seg button { padding: 9px 12px; min-width: 38px; }
+  select, input:not([type=range]):not([type=checkbox]) { min-height: 36px; font-size: 16px; } /* 16px: iOS won't zoom in */
+  input[type=range] { height: 32px; }
+  input[type=checkbox] { width: 20px; height: 20px; }
+  .stages button, .tabs button { padding: 14px 4px 12px; }
+  .list li { padding: 10px 11px; }
+  .list li button { padding: 4px 8px; font-size: 15px; }
+  #ctxMenu button { padding: 10px 10px; font-size: 13.5px; }
+  #moveBar button { width: 46px; height: 44px; font-size: 18px; }
+  .fold { width: 24px; height: 64px; }
+  .kbd-only { display: none; }
+  #viewport, #moveBar, #btnPull, .gauge { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  #btnPull { touch-action: none; }
+}
+#ctxMenu { max-height: calc(100% - 12px); overflow-y: auto; }
+#moveBar button.on { background: linear-gradient(180deg, #4b90ff, #2f6fe6); color: #fff; }
 
 /* field jobs: the worked solution stays folded until asked for */
 details.solution { margin-top: 12px; border: 1px solid var(--line); border-radius: 8px; padding: 2px 10px 8px; background: rgba(20,29,49,.45); }

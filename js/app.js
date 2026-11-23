@@ -325,7 +325,7 @@ function resize() {
 window.addEventListener('resize', resize);
 new ResizeObserver(resize).observe(viewport);
 $('#navHint').textContent = matchMedia('(pointer: coarse)').matches
-  ? 'Drag conduit: move · 1 finger: orbit · 2 fingers: pan/zoom'
+  ? 'Tap: mark · Drag: move · Hold: menu · 1 finger: orbit · 2: pan/zoom'
   : 'Drag conduit: move · Q/E: rotate · Left: orbit · Middle/right: pan · Wheel: zoom'; // layout changes (e.g. phone rotation)
 
 // ------------------------------------------------------------------ setup / reset
@@ -846,6 +846,10 @@ async function toggleDoor() {
 // connector, cover, door or the cart it offers what you can do with that; anywhere else it has the
 // tool (pencil or camera), views, panels and the exercise.
 let ctxHit = () => null;
+let cancelPointerWork = () => {};          // drops a grab in progress (long-press opened the menu)
+let forwarding = false;                    // a pointer event re-sent to the camera controls
+const isTouch = (e) => e.pointerType && e.pointerType !== 'mouse';
+const tapTol = (e) => isTouch(e) ? 12 : 5; // a fingertip wobbles more than a mouse
 function setTool(pencil) {
   $('#chkClick').checked = pencil; $('#chkClick').dispatchEvent(new Event('change'));
   if (!pencil) showPencil(null);
@@ -861,6 +865,24 @@ function wireContextMenu(fold) {
     if (e.button === 2 && e.target === cv) rDown = { x: e.clientX, y: e.clientY };
   }, true);
   window.addEventListener('keydown', e => { if (e.key === 'Escape') hide(); });
+  // touch: press and hold (without moving) opens the menu where the finger is
+  let lp = null; const fingers = new Set();
+  const lpCancel = () => { if (lp) { clearTimeout(lp.t); lp = null; } };
+  window.addEventListener('pointerdown', e => {
+    if (!isTouch(e) || forwarding) return;
+    fingers.add(e.pointerId);
+    if (lp || fingers.size > 1) { lpCancel(); return; }   // a second finger: that's a pinch
+    if (e.target !== cv || state.busy) return;
+    const at = { clientX: e.clientX, clientY: e.clientY };
+    lp = { id: e.pointerId, x: e.clientX, y: e.clientY, t: setTimeout(() => {
+      lp = null; cancelPointerWork(); showPencil(null);
+      if (navigator.vibrate) navigator.vibrate(12);
+      open(at);
+    }, 550) };
+  }, true);
+  window.addEventListener('pointermove', e => { if (lp && e.pointerId === lp.id && Math.hypot(e.clientX - lp.x, e.clientY - lp.y) > 12) lpCancel(); });
+  window.addEventListener('pointerup', e => { fingers.delete(e.pointerId); if (lp && e.pointerId === lp.id) lpCancel(); });
+  window.addEventListener('pointercancel', e => { fingers.delete(e.pointerId); lpCancel(); });
   window.addEventListener('pointerup', e => {
     if (e.button !== 2 || !rDown) return;
     const d = rDown; rDown = null;
@@ -1784,7 +1806,8 @@ function wire() {
   };
   $('#btnNew').onclick = newConduit;
   $('#chkWall').onchange = (e) => setWallShown(e.target.checked);
-  $('#chkClick').checked = true;   // the pencil is the tool at start-up (a reload must not keep it off)
+  $('#chkClick').checked = true;
+  if (matchMedia('(pointer: coarse)').matches) setTimeout(() => toast('Tap the conduit to mark it · drag to move it · press and hold for the menu · ⇕ lifts'), 900);   // the pencil is the tool at start-up (a reload must not keep it off)
   $('#btnUndo').onclick = () => {
     if (state.inBender) { state.inBender = false; state.existing = null; state.handle = state.perm = 0; state.benderFree = false; }
     else if (state.conduit.bends.length) state.conduit.bends.pop();
@@ -1937,27 +1960,49 @@ function wire() {
   ctxHit = (e) => { rayAt(e); return jobHit(); };
   // the front face of the job wall, if nothing else on the wall is in the way
   const wallHit = (e) => {
-    if (!state.lesson.route || !jobWall || !state.showWall || state.busy || e.pointerType !== 'mouse' || !$('#chkClick').checked) return null;
+    if (!state.lesson.route || !jobWall || !state.showWall || state.busy || !$('#chkClick').checked) return null;
     rayAt(e);
     const h = ray.intersectObjects([...jobGroup.children.filter(o => !o.isSprite), jobInstalled], true).filter(x => !x.object.isSprite)[0];
     if (state.wallTapeAxis === 'd') return h && h.object !== jobWall && h.point.z - JOB_ORIGIN.z > 0.02 ? h : null;
     return h && h.object === jobWall && h.face && h.face.normal.z > 0.5 ? h : null;
   };
+  cancelPointerWork = () => { drag = special = clickDown = wallDown = null; cv.style.cursor = ''; };
+  // the camera controls capture each pointer; one that has already lifted must not break the gesture
+  const capture = cv.setPointerCapture.bind(cv);
+  cv.setPointerCapture = (id) => { try { capture(id); } catch { /* pointer already gone */ } };
+  const uncapture = cv.releasePointerCapture.bind(cv);
+  cv.releasePointerCapture = (id) => { try { uncapture(id); } catch { /* pointer already gone */ } };
   window.addEventListener('pointerup', (e) => {
     const k = clickDown; clickDown = null;
-    if (k && e.pointerId === k.id && Math.hypot(e.clientX - k.x, e.clientY - k.y) <= 5) {
+    if (k && e.pointerId === k.id && Math.hypot(e.clientX - k.x, e.clientY - k.y) <= tapTol(e)) {
       if (k.ko) openKoMenu(k.ko, e.clientX, e.clientY); else if (k.pko) pkoClick(k.pko); else jobClick(k.act);
       return;
     }
     const d = wallDown; wallDown = null;
-    if (!d || e.pointerId !== d.id || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 5) return;
+    if (!d || e.pointerId !== d.id || Math.hypot(e.clientX - d.x, e.clientY - d.y) > tapTol(e)) return;
     const wh = wallHit(e);
     if (wh) addWallMark(showWallPencil(wh.point));
   });
   viewport.addEventListener('pointerdown', (e) => {
-    if (e.target !== cv || state.busy) return;
+    if (e.target !== cv || state.busy || forwarding) return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
-    if (drag) { drag = null; return; } // a second finger: hand over to the camera
+    if (!isTouch(e)) { if (drag) { drag = null; return; } }
+    else if (drag || special || clickDown || wallDown) {
+      // a second finger: whatever the first one held goes back, and both fingers drive the camera
+      const first = drag || special || clickDown || wallDown;
+      const held = !!(drag || special);          // the camera never saw that first finger
+      if (drag && drag.moved) { state[drag.key] = drag.w0; updateScene(); }
+      if (special && special.kind === 'wall' && special.moved) { state.wallFit.M.copy(special.M0); stickToWall(state.wallFit.M); showWallFit(); }
+      if (special && special.kind === 'cart' && special.moved) { state.cartW = special.w0; cart.position.set(state.cartW.x, 0, state.cartW.z); }
+      drag = special = clickDown = wallDown = null; cv.style.cursor = '';
+      if (held) {
+        forwarding = true;
+        cv.dispatchEvent(new PointerEvent('pointerdown', { pointerId: first.id, pointerType: 'touch', isPrimary: true, bubbles: true,
+          clientX: first.lx ?? first.x0 ?? first.x, clientY: first.ly ?? first.y0 ?? first.y, button: 0, buttons: 1 }));
+        forwarding = false;
+      }
+      return;
+    }
     rayAt(e);
     if (rollRingActive() && ray.intersectObject(rollRing, true).length) {
       e.stopPropagation(); special = { kind: 'roll', id: e.pointerId }; cv.style.cursor = 'grabbing'; return;
@@ -1996,7 +2041,7 @@ function wire() {
     if (key === 'stationW' && !state.inBender) state.benderFree = true; // stays where you put it
     const y = Math.max(0, Math.min(p.hit.point.y, 40));
     drag = { id: e.pointerId, key, y, start: floorPoint(e, y), w0: { ...state[key] }, x0: e.clientX, y0: e.clientY, moved: false, p };
-    if (e.altKey) {
+    if (e.altKey || state.liftMode) {
       // a vertical plane through the grab point, square to the view: the pointer's rise is the lift
       const n = camera.getWorldDirection(new THREE.Vector3()).setY(0);
       if (n.lengthSq() < 1e-6) n.set(0, 0, 1);
@@ -2005,10 +2050,12 @@ function wire() {
     }
   }, true);
   window.addEventListener('pointermove', (e) => {
+    if (drag && e.pointerId === drag.id) { drag.lx = e.clientX; drag.ly = e.clientY; }
+    if (special && e.pointerId === special.id) { special.lx = e.clientX; special.ly = e.clientY; }
     if (special && e.pointerId === special.id) {
       rayAt(e);
       if (special.kind === 'wall' || special.kind === 'cart') {
-        if (!special.moved && Math.hypot(e.clientX - special.x0, e.clientY - special.y0) < 5) return;
+        if (!special.moved && Math.hypot(e.clientX - special.x0, e.clientY - special.y0) < tapTol(e)) return;
         if (!special.moved) { special.moved = true; cv.style.cursor = 'grabbing'; }
       }
       if (special.kind === 'cart') {
@@ -2072,7 +2119,7 @@ function wire() {
     }
     showPencil(null);
     if (e.pointerId !== drag.id) return;
-    if (!drag.moved && Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) < 5) return;
+    if (!drag.moved && Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) < tapTol(e)) return;
     drag.moved = true; cv.style.cursor = 'grabbing';
     if (drag.lift) {
       rayAt(e);
@@ -2113,6 +2160,11 @@ function wire() {
     }
   };
   $('#btnRotL').onclick = () => turn(15);
+  $('#btnLift').onclick = () => {
+    state.liftMode = !state.liftMode;
+    $('#btnLift').classList.toggle('on', state.liftMode);
+    toast(state.liftMode ? 'Lift: drag the conduit or the bender up or down. Tap ⇕ again to slide them on the floor.' : 'Drag slides things along the floor again.');
+  };
   $('#btnRotR').onclick = () => turn(-15);
   $('#btnHome').onclick = () => {
     if (state.inBender) state.stationW = { x: 0, z: 0, yaw: 0 };

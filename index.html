@@ -2,7 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b1222">
   <title>Conduit Bending Workshop: 3/4" to 2" EMT</title>
   <link rel="stylesheet" href="styles.css">
   <script type="importmap">
@@ -123,7 +124,7 @@
           <button id="btnRelease" class="btn">Release</button>
         </div>
         <label class="chk"><input type="checkbox" id="chkSpring" checked> Springback</label>
-        <p class="small muted" title="Hold ↑ to pull, Shift+↑ for a slow pull, R to release">↑ pull · ⇧↑ fine · R release</p>
+        <p class="small muted kbd-only" title="Hold ↑ to pull, Shift+↑ for a slow pull, R to release">↑ pull · ⇧↑ fine · R release</p>
         <div id="bendInfo" class="hint"></div>
         <button id="btnRemove2" class="btn">Release &amp; remove</button>
       </section>
@@ -147,6 +148,7 @@
       <div id="moveBar">
         <button id="btnRotL" title="Rotate left 15° (Q)">⟲</button>
         <button id="btnRotR" title="Rotate right 15° (E)">⟳</button>
+        <button id="btnLift" title="Lift: drag moves things up and down (Alt + drag with a mouse)">⇕</button>
         <button id="btnHome" title="Move back to the starting spot">⌂</button>
       </div>
     </main>
